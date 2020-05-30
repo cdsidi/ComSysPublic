@@ -1,1 +1,641 @@
 
+/*每个类依赖功能的类：
+	comsolve_com:几乎所有
+	err_com: syscore_com systemio_com out_com
+	in_com:无
+	out_com:无
+	storage_com:懒得写了
+	strext_com:无
+	syscore_com:
+		systemio_com
+		out_com
+		storage_com
+		comsolve_com
+		in_com
+		strext_com
+	systemio_com: 无
+	welcome_com: out_com
+*/
+/************更新日志*************************** 
+0.0.1:	基本的框架和命令基础 
+0.0.2: 优化了GUI,添加了启动和关闭画面，为fileio做下早期准备
+0.1.0: 在底层支持了Integer类型 
+0.1.1: 优化了用户交互、完善了代码注释 
+0.1.2: 添加了广告
+0.1.3：重构代码，将System里面的类 拆分开来,为多文件编程打下基础 
+0.1.4:	1.添加了"cls"指令 用于清屏 
+		2. storage 已经支持Integer/Floating/String全类型 
+		3. 现在命令首尾如果有空格会自动忽略(trim函数) 
+		4.支持通过varinfo string 来输出变量的内容 
+0.1.4 patch 1: 1.修复了bug；添加了 cls 指令在help内 
+0.1.5:	1.添加了syscore_com 类 拆分了welcome_com的一些功能
+	 	2.整合了开始屏幕和关闭屏幕欢迎信息
+		3.添加了"welcome::about()"包含系统信息和广告 
+		4.更改了版本号系统[x.x.x.x] 最后一位是补丁号 
+0.2.0:	TestEdition 1:
+		1.尽可能的将类的成员函数编程静态成员函数，以便类拆分，降低耦合度 
+		2.现在版本号已经包含在welcome_com中
+		3.已经在comsolve_com里添加了中文命令的定义 
+		Test Edition 2:
+		4.现在所有函数(除了main)已经包含在类中，添加了strext_com 用来做字符和字符串处理
+		5.添加/改动了一些注释(现在每个类的依赖已经被写明，确保类和类之间没有互相依赖） 
+		6.测试版现在没有广告，且verpatch=-1 并且会显示[TestEdition] 
+		7.增加了启动时间记录，welcome_com::sysstarttime，启动结束之前是-1,启动后可以通过sysinfo查看
+		8.重磅更新：comsolve_com::varsole(string s)已经可用
+			用法:"其它 %变量名% 其它”会替换成“其它 变量的内容 其它” 
+		9.调整了sysinfo_com::welcomescr显示参数 sleep已经使用了systemio_com
+		10.添加了color命令 调用cmd的颜色，用来改变控制台窗口的颜色 
+		11.优化了多语言 
+		patch 0:
+		12.为正式版优化GUI  
+		13.添加了runtime 命令 获取系统从开始到当前时刻的时间 
+		14.补全了测试版的一些命令相关（中文，help)
+		patch 1:
+		1.完善了注释
+		2.sysinfo 修复bug:系统启动时间显示没有冒号
+		3.新功能：现在程序标题栏会显示ComSys
+		4.systemio_com::重写了sleep(int),添加了sleep_until(int),
+		5.令syscore_com::startsys改用sleep_until 加快启动时间
+		6.对storage_com 的整理 
+***********************************************/ 
+#include<iostream>
+#include<string>
+#include<cstdlib> 
+#include<vector>
+#include<map>
+#include<ctime>
+#include<cstdio>
+#include<sstream>
+using std::cin;
+using std::cout;
+using std::string;
+using std::endl;
+using std::vector;
+using std::map;
+class strext_com{//字符串处理扩展功能 
+	public:
+		static void trim(string &s){//删除字符串首尾空格 
+			if(s.empty()) return;
+			s.erase(0,s.find_first_not_of(' '));
+  	 	 	s.erase(s.find_last_not_of(' ') + 1);
+		}
+		static bool is_empty_char(char c){
+			return c==' '|| c=='\n';
+		}
+};
+class out_com{//字符串输出 
+	public:
+		static void print(string s);//输出 
+		static void print(string s,int from);//从第from开始输出，一直到最后 
+		static void println(string s);//输出并换行 
+		static void println(string s,int from);//从from开始输出，并换行 	
+};
+class err_com{//错误处理 
+	public:
+	static void throwln(string s);//输出错误信息 
+	static void throwshut(string s,int timeout);//输出错误信息并且在timeout毫秒后关闭程序 
+};
+class fileio_com{//文件输入输出（还没写）
+};
+class in_com{//字符串输入 
+	public:
+		static void read(string &s);//输入（空白作结尾符号） 
+		static void readln(string &s); //输入（换行作结尾符号） 
+};
+class systemio_com{ //依赖于Windows io的功能 
+	public:                 
+	static void windowscmd(string s){//直接在cmd里面执行指令 
+		system(s.c_str());
+	}
+	static progexit(int code){//退出程序并且错误码为code 
+		exit(code);
+	}
+	static void cleanscr();//清屏 
+	static sleep_until(int k){ //暂停到k毫秒 
+		while(gettime()<=k);
+	}
+	static sleep(int k){//暂停k毫秒
+		sleep_until(gettime()+k);
+	}
+	static void changeclr(string s){//改变程序颜色 
+		string tmp="color "+s;
+		system(tmp.c_str());
+	}
+	static int gettime(){ //获取程序运行的时间 
+		return clock();
+	}
+};
+class welcome_com{//系统欢迎与用户界面（并不是系统核心） 
+	public:
+		static const int vernum1=0,vernum2=2,vernum3=0,verpatch=1;
+		static int sysstarttime;//系统启动的时间 
+		static void sysinfo();//系统信息 
+		static void help();//输出帮助信息
+		static void advertisements();//输出广告 
+		static void about();//输出关于信息 
+};
+int welcome_com::sysstarttime=-1;//开机之前，sysstarttime初始值-1毫秒 
+class storage_com{//存储管理 
+	public:
+		static const int code_void=0,//空类型 
+						code_integer=1,//整数 
+						code_floating=2,//浮点数 
+						code_string=3;//字符串
+		struct varinfo{//保存变量信息的数据结构 
+			string name;
+			int type;
+			int address;
+			varinfo(int a=0,int b=0):type(a),address(b){}
+			varinfo(string a,int b,int c):name(a),type(b),address(c){}
+		};
+		typedef int type_t;//存储类型的类型 
+		typedef long long Integer;//Integer:long long
+		typedef double Floating;//Floating: double
+		typedef string String;//String: string
+		static vector<Integer> Ints;//保存Integer 的数组 
+		static vector<Floating> Floats;//保存Floating的数组 
+		static vector<String> Strings;//保存String的数组 
+		static map<string,varinfo> varmap;//string->varinfo的映射 
+		static map<string,type_t> typemap;//string->type的映射 
+		static const string
+			code_str_void,
+			code_str_integer,
+			code_str_floating,
+			code_str_string;
+		static const string
+			code_err_wrongtype;
+	public:
+		storage(){}
+		static void init();
+		static int gettype(string name);//获得变量名name的类型 
+		static void putvalue(string name,long long val);//将变量名name的值设为val
+		static void putvalue(string name,int val); 
+		static void putvalue(string name,string val);
+		static void putvalue(string name,double val);
+		static int getInteger(string name);//获得name的int值 
+		static String getString(string name);
+		static double getFloating(string name);
+		static string getvarstr(varinfo var);
+		static string getvarstr(string name);
+		static void printvarstr(string name);
+		static void printvarstrln(string name);
+		static void solve0(string command);
+
+};
+const string storage_com::code_str_void="VOID",
+			storage_com::code_str_integer="INTEGER",
+			storage_com::code_str_floating="FLOATING",
+			storage_com::code_str_string="STRING",
+			storage_com::code_err_wrongtype="Wrong Type";
+vector<storage_com::Integer> storage_com::Ints;//保存Integer 的数组 
+vector<storage_com::Floating> storage_com::Floats;//保存Floating的数组 
+vector<storage_com::String> storage_com::Strings;//保存String的数组 
+map<string,storage_com::varinfo> storage_com::varmap;//string->varinfo的映射 
+map<string,storage_com::type_t> storage_com::typemap;
+class syscore_com{//系统核心
+	public:
+		static const int cnt_stars=80,cnt_emptyl=8,waitms=3000;
+		static const string version;//版本号提示
+		static void closesys();//关闭系统 
+		static void startsys();//启动和初始化 
+		static void initsys();//延迟初始化 
+		static void closetimeout(int m_secs);//延迟关闭（毫秒） 
+		static void welcomescr(string message);//开始和关闭画面 
+		static void sysmain();//系统运行的重要内容 
+};
+class comsolve_com{//指令处理 
+	public:
+		static const int Max_basic_command=100;//最大命令数目(现在只有8个） 
+		static const int
+			codecom_base_en=Max_basic_command*0,
+			codecom_base_cn=Max_basic_command*1;		
+		static const int 
+			code_unknown=0,//错误指令 
+			code_print=1,
+			code_windowscmd=2,
+			code_exit=3,
+			code_sysinfo=4,
+			code_help=5,
+			code_var=6,
+			code_cls=7,
+			code_color=8,
+			code_runtime=9;
+		static const char 
+			code_varflag0='%';//变量出现的标志 
+		static string basic_command_cn[Max_basic_command];
+		static string basic_command[Max_basic_command];//指令代号->指令名的映射 
+		static map<string,int> commap;//指令名->指令代号的映射 
+	private:
+		//static void push_command(string s,int code,int codebase);
+	public:
+		static void init();//初始化 
+		static void solve0(string s);//第一步处理
+		static void solve1(string s,int left,int code_raw);//第二步命令处理 
+		static string varsolve(string s);//把字符串中的变量替换成所代表的的值
+};
+string comsolve_com::basic_command[Max_basic_command];//指令代号->指令名的映射
+string comsolve_com::basic_command_cn[Max_basic_command]; 
+map<string,int> comsolve_com::commap;//指令名->指令代号的映射 
+class System_com{//基本功能（几乎无需初始化） 
+	public:
+		out_com out;
+		err_com err;
+		in_com in;
+		systemio_com sysio;
+		fileio_com fileio;
+		welcome_com wel;
+		syscore_com syscore;
+	System_com(){}
+};
+class Systemext_com{//基本拓展功能（可能需要初始化） 
+	public:
+		storage_com var;
+		comsolve_com comsolve;
+	Systemext_com(){}
+}; 
+void out_com::print(string s){
+	print(s,0);
+}
+void out_com::println(string s){
+	println(s,0);
+}
+void out_com::print(string s,int from){
+	int len=s.length();
+	string s1=s.substr(from,len-from);
+	cout<<s1;
+}
+void out_com::println(string s,int from){
+	print(s,from);cout<<endl;
+}
+void in_com::read(string &s){
+	cin>>s;
+}
+void in_com::readln(string &s){
+	getline(cin,s);
+}
+void err_com::throwln(string s){
+	systemio_com::windowscmd("color 1f"); //color 1 3 9是蓝色 
+	out_com::println("System Error:There is a problem:");
+	out_com::println(s);
+}
+void err_com::throwshut(string s,int timeout){
+	throwln(s);
+	syscore_com::closetimeout(timeout);
+} 
+void welcome_com::sysinfo(){
+	std::stringstream versionstream,timestream;
+	versionstream<<"[Version:"<<vernum1<<"."<<vernum2<<"."<<vernum3<<"."<<verpatch<<"]";
+	timestream<<sysstarttime<<"(ms)]";
+	if(verpatch<0) versionstream<<"[TestEdition]";
+	string versionstring,timestring;
+	versionstream>>versionstring;
+	timestream>>timestring;
+	timestring="[System start time:"+timestring;
+	out_com::println("[Command Operatoring System]");
+	out_com::println("[This system is designed by CDsidi.]");
+	out_com::println(versionstring);
+	if(sysstarttime!=-1){
+		out_com::println(timestring);
+	}
+}
+void welcome_com::advertisements(){
+	if(verpatch<=-1){
+		out_com::println("********Test Edition: No Advertisement*********");
+		return;
+	}
+	out_com::println("****************以下是广告*************");
+	out_com::println("_______广告 1_________ ");	
+	out_com::println("如果喜欢ComSys，请捐助我 ");	
+	out_com::println("如果想投放广告，请联系我 ");
+	out_com::println("https://www.cnblogs.com/cdsidi");
+	out_com::println("_______广告 2_________ ");	
+	out_com::println("现在加入 51C SB 派对！");
+	out_com::println("****************广告已结束*************");
+}
+void welcome_com::about(){
+	sysinfo();
+	advertisements();
+};
+//这里有bug 先不用了 
+string comsolve_com::varsolve(string s){//将%varname%替换为var的值 
+	string ret=s;
+	int len=s.length(),
+		lastplace=-1;//上一个没有配对的varflag位置 
+	for(int i=0;i<len;++i){
+		if(s.at(i)==code_varflag0){
+			if(lastplace==-1){
+				lastplace=i;
+			}else{
+				string varname=s.substr(lastplace+1,i-(lastplace+1));//恰好截取varflag中间的部分 
+				if(!varname.empty()){
+					string varstr=storage_com::getvarstr(varname);
+					if(varstr==storage_com::code_str_void) continue; 
+					ret.erase(lastplace,i-lastplace+1);//删除ret从lastplace开始，一直到i的部分[lastplace,i]
+					ret.replace(lastplace,0,varstr);
+					lastplace=-1;
+					int tmp=varstr.length()-(varname.length()+2);//当前指针i的变化量
+					i+=tmp;
+					len+=tmp;
+				}else{
+					//lastplace=i; 
+				}
+			}
+		}
+	}
+	for(int i=1;i<len;++i){//将两个连续的'%'编程一个'%' 
+		if(ret.at(i)==code_varflag0 && ret.at(i-1)==code_varflag0){
+			ret.erase(i,1);
+			i-=1;
+			len-=1;
+		}
+	}
+	return ret;
+}
+void comsolve_com::solve1(string s,int left,int code_raw){
+	int base=code_raw/Max_basic_command,//语言基值 
+		code=code_raw%Max_basic_command;//命令名 
+	int len=s.length();
+	string tmp=s.substr(left,len-left);//从left一直截取到len(下一步处理的tmp) 
+	switch(code){
+		case code_unknown:
+			out_com::println("Bad command.\nPlease type 'help' for help of commands.");break;
+		case code_print:
+			out_com::println(tmp);break;
+		case code_windowscmd:
+			systemio_com::windowscmd(tmp);break;
+		case code_exit:
+			syscore_com::closesys();break;
+		case code_sysinfo:
+			welcome_com::sysinfo();break;
+		case code_help:
+			welcome_com::help();break;
+		case code_var:
+			storage_com::solve0(tmp);break;
+		case code_cls:
+			systemio_com::cleanscr();break;
+		case code_color:
+			systemio_com::changeclr(tmp);break;
+		case code_runtime:
+			cout<<systemio_com::gettime()<<"(ms)"<<endl;break;
+		default:
+			err_com::throwln("Bad Command!");
+	}
+}
+void comsolve_com::solve0(string s){
+	int len=s.length();
+	for(int i=0;i<len;++i){//枚举第一级命令的结尾
+		if(strext_com::is_empty_char(s[i])){//如果[i]是空格 
+			string tmp=s.substr(0,i);//不算空格[0,i-1]是否找到一个指令 
+			if(commap[tmp]!=0){
+				solve1(s,i+1,commap[tmp]);//转交下层处理,[i+1,end]跳过空格 
+				return;
+			}
+		}
+	}
+	//s没有遇到任何空格,传递整个字符串作为第一级命令，第二级命令是空串 
+	solve1(s,len,commap[s]);
+}
+void comsolve_com::init(){
+	basic_command[code_print]="print";
+	basic_command[code_windowscmd]="windows";
+	basic_command[code_exit]="exit";
+	basic_command[code_sysinfo]="sysinfo";
+	basic_command[code_help]="help";
+	basic_command[code_var]="var";
+	basic_command[code_cls]="cls";
+	basic_command[code_color]="color";
+	basic_command[code_runtime]="runtime";
+	basic_command_cn[code_print]="输出";
+	basic_command_cn[code_windowscmd]="扩展";
+	basic_command_cn[code_exit]="退出";
+	basic_command_cn[code_sysinfo]="系统信息";
+	basic_command_cn[code_help]="帮助";
+	basic_command_cn[code_cls]="清屏";
+	basic_command_cn[code_color]="颜色";
+	basic_command_cn[code_runtime]="运行时间"; 
+	for(int i=0;i<Max_basic_command;++i)
+		commap[basic_command[i]]=i+codecom_base_en;
+	for(int i=0;i<Max_basic_command;++i)
+		commap[basic_command_cn[i]]=i+codecom_base_cn;
+}
+void systemio_com::cleanscr(){
+	system("cls");
+}
+void syscore_com::welcomescr(string message){//启动和关闭屏幕 (通过message传递) 
+	systemio_com::cleanscr();
+	for(int i=1;i<=cnt_stars;++i)out_com::print("*");
+	for(int i=1;i<=cnt_emptyl/2;++i)out_com::print("\n");
+	welcome_com::about();
+	out_com::println(message);
+	for(int i=1;i<=cnt_emptyl-cnt_emptyl/2;++i)out_com::print("\n");
+	for(int i=1;i<=cnt_stars;++i)out_com::print("*");
+}
+void welcome_com::help(){
+	out_com::println("************Start of help*****************");
+	out_com::println("1.	command 'print': ");
+	out_com::println("print {string} System will say {string}.");
+	out_com::println("eg. print Hello!");
+	out_com::println("2.	command 'exit': ");
+	out_com::println("System will close.");
+	out_com::println("eg. exit");
+	out_com::println("3.	command 'sysinfo': ");
+	out_com::println("System will show the information of the System.");
+	out_com::println("eg. sysinfo");
+	out_com::println("4.	command 'help': ");
+	out_com::println("System will show the commands of the System.");
+	out_com::println("eg. help");
+	out_com::println("5.	command 'windows': ");
+	out_com::println("windows {string} system will do it in Windows cmd.exe");
+	out_com::println("eg. windows echo hello");	
+	out_com::println("6.	command 'cls': ");
+	out_com::println("System will clean the screen.");
+	out_com::println("eg. cls");	
+	out_com::println("7. 	command 'color':");
+	out_com::println("System will change the color to {string}");
+	out_com::println("eg. color 0a");
+	out_com::println("8.	command 'runtime': ");
+	out_com::println("System will show the runtime(ms)");
+	out_com::println("eg. runtime");
+	out_com::println("************End of help*****************");
+}
+void syscore_com::startsys(){
+	systemio_com::changeclr("0f");
+	systemio_com::windowscmd("title ComSys");
+	welcomescr("Starting...");
+	initsys();
+	systemio_com::sleep_until(waitms);
+	systemio_com::cleanscr();
+	out_com::println("System has got ready.");
+	sysmain();
+} 
+void syscore_com::initsys(){
+	storage_com::init();
+	comsolve_com::init();
+}
+void syscore_com::closesys(){
+	systemio_com::cleanscr();
+	welcomescr("System is shutting down...");
+	systemio_com::sleep(waitms);
+	out_com::println("Press any key to exit.");
+	systemio_com::windowscmd("pause >nul");
+	systemio_com::progexit(0);
+}
+void syscore_com::closetimeout(int m_secs){
+	printf("System will shutdown in %d seconds. Please get ready.",m_secs/1000);
+	systemio_com::sleep(m_secs);
+	closesys();
+}
+void syscore_com::sysmain(){
+	welcome_com::sysstarttime=systemio_com::gettime();
+	string s;
+	while(1){
+		out_com::print(">");
+		in_com::readln(s);
+		strext_com::trim(s);//去掉首尾空格 
+		if(!s.empty())
+			comsolve_com::solve0(s);
+	}
+}
+int storage_com::getInteger(string name){
+	varinfo var=varmap[name];
+	if(var.type==code_integer){
+		return Ints[var.address];
+	}else{
+		err_com::throwln(code_err_wrongtype);
+		return 0;
+	}
+}
+double storage_com::getFloating(string name){
+	varinfo var=varmap[name];
+	if(var.type==code_floating){
+		return Floats[var.address];
+	}else{
+		err_com::throwln(code_err_wrongtype);
+		return 0;
+	}
+}
+string storage_com::getString(string name){
+	varinfo var=varmap[name];
+	if(var.type==code_string){
+		return Strings[var.address];
+	}else{
+		err_com::throwln(code_err_wrongtype);
+		return "";
+	}
+}
+void storage_com::putvalue(string name,long long val){
+	varinfo var=varmap[name];
+	if(var.type==code_void){
+		Ints.push_back(val);
+		var=varinfo(name,code_integer,Ints.size()-1);
+		varmap[name]=var;
+	}else if(var.type==code_integer){//此变量存在 
+		Ints[var.address]=val;
+	}else{//注意，以下会出现在内存池中变量的内存泄露 
+		Ints.push_back(val);
+		var=varinfo(name,code_integer,Ints.size()-1);
+		varmap[name]=var;
+		//将之前的存储信息覆盖(之前的内存将永远无法用到） 
+	}	
+}
+void storage_com::putvalue(string name,int val){
+	putvalue(name,val);
+}
+void storage_com::putvalue(string name,string val){
+	varinfo var=varmap[name];
+	if(var.type==code_void){
+		Strings.push_back(val);
+		var=varinfo(name,code_string,Strings.size()-1);
+		varmap[name]=var;
+	}else if(var.type==code_string){
+		Strings[var.address]=val;
+	}else{ 
+		Strings.push_back(val);
+		var=varinfo(name,code_string,Strings.size()-1);
+		varmap[name]=var;
+	}
+}
+void storage_com::putvalue(string name,double val){
+	varinfo var=varmap[name];
+	const int type=var.type;
+	if(type==code_void){
+		Floats.push_back(val);
+		var=varinfo(name,code_floating,Floats.size()-1);
+		varmap[name]=var;
+	}else if(type==code_floating){
+		Floats[var.address]=val;
+	}else{ 
+		Floats.push_back(val);
+		var=varinfo(name,code_floating,Floats.size()-1);
+		varmap[name]=var;
+	}
+}
+int storage_com::gettype(string name){
+	varinfo ret=varmap[name];
+	return ret.type;	
+}
+string storage_com::getvarstr(varinfo var){
+	const int type=var.type,address=var.address;
+	string ret;
+	std::stringstream stream;
+	if(type==code_integer){
+		stream<<Ints.at(address);
+	}else if (type==code_string){
+		stream<<Strings.at(address);
+	}else if (type==code_floating){
+		stream<<Floats.at(address);
+	}else{
+		return code_str_void;
+	}
+	stream>>ret;
+	return ret;
+}
+string storage_com::getvarstr(string name){
+	varinfo var=varmap[name];
+	return getvarstr(var);
+}
+void storage_com::printvarstr(string name){
+	out_com::print(getvarstr(name));
+}
+void storage_com::printvarstrln(string name){
+	out_com::println(getvarstr(name));
+}
+/*下面的未完结 */
+void storage_com::solve0(string s){//s是storage命令处理 
+	int len=s.length();
+	strext_com::trim(s);
+	for(int i=0;i<len;++i){//枚举i,一直到结尾 
+		if(strext_com::is_empty_char(s[i])){//分格的空格s[i]
+			string tmp=s.substr(0,i);//不算空白[0,i-1]是否找到变量名
+			varinfo tmpinfo=varmap[tmp]; 
+			//不管这个变量存不存在 ,都转交下层处理 [i+1,end]跳过刚才的空白 
+			//solve1(s,i+1,tmpinfo);
+			return;//分隔符之后的不再处理 
+		}
+	}
+	err_com::throwln("Var Command Error.");
+}
+/*未完结 
+void storage_com::solve1(string str,int left,varinfo var){
+	int len=str.length();
+	string s=str.substr(left,len-left);
+	for(int i=0;i<len;++i){
+		if(strext_com::is_empty_char(s[i]))
+	}
+	string type_tmp=s.strstr(0,)
+}*/
+void storage_com::init(){
+	vector<Integer>().swap(Ints);
+	vector<Floating>().swap(Floats);
+	vector<String>().swap(Strings);
+	map<string,varinfo>().swap(varmap);
+	map<string,type_t>().swap(typemap);
+	typemap[code_str_void]=code_void;
+	typemap[code_str_integer]=code_integer;
+	typemap[code_str_floating]=code_floating;
+	typemap[code_str_string]=code_string;
+}
+int main(){
+	syscore_com::startsys();
+	return 0;
+}
